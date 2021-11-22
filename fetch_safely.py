@@ -295,8 +295,7 @@ def pullAll():
 		else:
 			os.makedirs(data_dir)
 	os.chdir(data_dir)
-	for year in range(1953, 1954):
-	# for year in range(2020, 1981, -1):
+	for year in range(2020, 1981, -1):
 		pullDataForYear(year)
 	os.chdir(old_cwd)
 
