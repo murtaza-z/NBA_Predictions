@@ -1,8 +1,10 @@
+import numpy as np
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 import pandas
 import os
+import math
 
 def PullLogWrite(msg):
 	"""A function to append a NBA download to the 'completed' log.
@@ -262,6 +264,33 @@ def updateGames():
 				dataFrame.to_csv("{game_team}.csv".format(game_team=game_team))
 			PullLogWrite(box_score_text)
 
+def updateRosters(year):
+	complete_log = PullLogRead()
+	game_results = pandas.read_csv("game_results.csv", index_col=0)
+	teams = set(game_results["visitor_team_name"].unique()).union(set(game_results["home_team_name"].unique()))
+
+	def SelectColValueFunc(col):
+		value = col.text
+		add_cols = []
+		if col['data-stat'] == 'height':
+			value = float(col['csk'])
+		elif col['data-stat'] == 'birth_date':
+			value = str(datetime.strptime(col.text, r'%B %d, %Y').date())
+		elif col['data-stat'] == 'years_experience':
+			value = 0 if '0.5' == col['csk'] else int(col['csk'])
+		return value, add_cols
+
+	for team in teams:
+		if team not in complete_log:
+			print("updating roster {0}/{1}...".format(year, team))
+			url = "https://www.basketball-reference.com/teams/{team}/{year}.html".format(team=team, year=year)
+			soup_html = getSoup(url)
+			table = retrieveTable(soup_html, 'roster', [], SelectColValueFunc)
+
+			# Save to file
+			dataFrame = pandas.DataFrame(table[1:], columns=table[0])
+			dataFrame.to_csv("{team}.csv".format(team=team))
+			PullLogWrite(team)
 
 def pullDataForYear(year):
 	old_cwd = os.getcwd()
@@ -280,6 +309,7 @@ def pullDataForYear(year):
 		updatePlayerStats(year)
 	
 	updateGames()
+	updateRosters(year)
 
 	os.chdir(old_cwd)
 
