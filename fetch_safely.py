@@ -265,6 +265,10 @@ def updateGames():
 			PullLogWrite(box_score_text)
 
 def updateRosters(year):
+	"""
+	A function which completes the downloads for each team's roster information.
+	Also updates log for which team's rosters have been downloaded.
+	"""
 	complete_log = PullLogRead()
 	game_results = pandas.read_csv("game_results.csv", index_col=0)
 	teams = set(game_results["visitor_team_name"].unique()).union(set(game_results["home_team_name"].unique()))
@@ -314,7 +318,6 @@ def pullDataForYear(year):
 	os.chdir(old_cwd)
 
 def pullAll():
-	old_cwd = os.getcwd()
 	data_dir = "data"
 	if not os.path.exists(data_dir):
 		zip_dir = data_dir + ".zip"
@@ -324,6 +327,7 @@ def pullAll():
 			shutil.unpack_archive(zip_dir)
 		else:
 			os.makedirs(data_dir)
+	old_cwd = os.getcwd()
 	os.chdir(data_dir)
 	for year in range(2020, 1981, -1):
 		pullDataForYear(year)

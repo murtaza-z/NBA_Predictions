@@ -1,0 +1,84 @@
+
+# Player Stats Per 36 Minutes (player_stats.csv)
+#	url template: https://www.basketball-reference.com/leagues/NBA_{year}_per_minute.html
+ranker		Rank (alphebetical index)
+player		Player (name)
+pos			Position (C, PF, SG, PG, SF, …)
+age			Player's age on February 1 of the season
+team_id		Team (abbreviation)
+g			Games
+gs			Games Started
+mp_per_g	Minutes Played (over the course of the season)
+fg_per_g	Field Goals Per 36 Minutes
+fga_per_g	Field Goal Attempts Per 36 Minutes
+fg_pct		Field Goal Percentage
+fg3_per_g	3-Point Field Goals Per 36 Minutes
+fg3a_per_g	3-Point Field Goal Attempts Per 36 Minutes
+fg3_pct		3-Point Field Goal Percentage
+fg2_per_g	2-Point Field Goals Per 36 Minutes
+fg2a_per_g	2-Point Field Goal Attempts Per 36 Minutes
+fg2_pct		2-Point Field Goal Percentage
+efg_pct		Effective Field Goal Percentage
+ft_per_g	Free Throws Per 36 Minutes
+fta_per_g	Free Throw Attempts Per 36 Minutes
+ft_pct		Free Throw Percentage
+orb_per_g	Offensive Rebounds Per 36 Minutes
+drb_per_g	Defensive Rebounds Per 36 Minutes
+trb_per_g	Total Rebounds Per 36 Minutes
+ast_per_g	Assists Per 36 Minutes
+stl_per_g	Steals Per 36 Minutes
+blk_per_g	Blocks Per 36 Minutes
+tov_per_g	Turnovers Per 36 Minutes
+pf_per_g	Personal Fouls Per 36 Minutes
+pts_per_g	Points Per 36 Minutes
+player_id	Player webpage ID
+
+# Game Data for a Single Team ([box_score_text]_[winning-team].csv)
+#	[box_score_text]==[year][month][day][game of day][home_team]
+#	url template: https://www.basketball-reference.com/boxscores/{box_score_text}.html
+player	Starters (name)
+mp		Minutes Played
+fg		Field Goals
+fga		Field Goal Attempts
+fg_pct	Field Goal Percentage
+fg3		3-Point Field Goals
+fg3a	3-Point Field Goal Attempts
+fg3_pct	3-Point Field Goal Percentage
+ft		Free Throws
+fta		Free Throw Attempts
+ft_pct	Free Throw Percentage
+orb		Offensive Rebounds
+drb		Defensive Rebounds
+trb		Total Rebounds
+ast		Assists
+stl		Steals
+blk		Blocks
+tov		Turnovers
+pf		Personal Fouls
+pts		Points
+
+# Game Results (game_results.csv)
+#	url template: https://www.basketball-reference.com/leagues/NBA_{year}_games.html
+date_game			Date
+game_start_time		Start Time (ET)
+visitor_team_name	Visitor/Neutral (abbreviation)
+visitor_pts			Visitor Points
+home_team_name		Home/Neutral (abbreviation)
+home_pts			Home Points
+box_score_text		Game webpage ID ([year][month][day][game of day][home_team])
+overtimes			Overtimes (OT or empty)
+attendance			attendance
+game_remarks		Notes (Not sure. It's typically empty)
+
+
+# Roster ([team abbreviation].csv)
+#	url template: https://www.basketball-reference.com/teams/{team_abbr}/{year}.html
+number				Uniform Number
+player				Player (name)
+pos					Position (SG, PG, PF, C, SF, …)
+height				Height (in.)
+weight				Weight (lbs.)
+birth_date			Birth Date
+birth_country		Birth Country (id abbreviation)
+years_experience	Years experience in NBA/ABA (prior to this season)
+college				College
