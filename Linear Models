@@ -1,0 +1,591 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Dec  4 15:25:27 2021
+
+@author: murta
+"""
+
+import pandas
+import os
+#import tensorflow as tf
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
+from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
+from sklearn.linear_model import ElasticNet, Ridge, Lasso
+
+
+file_dir = r"C:\Users\murta\Desktop\ISU\Classes\COM S 574\Project\data"
+
+def readTable(filename: str):
+    table = pandas.read_csv(filename, index_col=0)
+    return table
+
+def constructDataset(dst: str):
+	data_dir = "data"
+	columns = [
+		'fg_per_g', 'fga_per_g', 'fg_pct',
+		'fg3_per_g', 'fg3a_per_g', 'fg3_pct',
+		'fg2_per_g', 'fg2a_per_g', 'fg2_pct',
+		'efg_pct',
+		'ft_per_g', 'fta_per_g', 'ft_pct',
+		'orb_per_g', 'drb_per_g', 'trb_per_g',
+		'ast_per_g', 'stl_per_g', 'blk_per_g', 'tov_per_g', 'pf_per_g', 'pts_per_g'
+	]
+
+	team_cols = [
+		[col + str(i) for col in columns] for i in range(2)
+	]
+	total_cols = ['season', 'points0', 'points1'] + team_cols[0] + team_cols[1]
+	
+	all_game_data = []
+	for year in range(2000, 2021):
+		season_dir = "{dir}/{year}".format(dir=data_dir, year=year)
+		game_results = readTable("{dir}/game_results.csv".format(dir=season_dir))
+		game_results = game_results[["box_score_text", "visitor_team_name", "visitor_pts", "home_team_name", "home_pts"]]
+		player_stats = readTable("{dir}/player_stats.csv".format(dir=season_dir))
+		print(year)
+		
+		for (i, box_score_text, team0, team0_points, team1, team1_points) in game_results.itertuples():
+			teams = [team0, team1]
+			game_data = [year, team0_points, team1_points]
+			for team in teams:
+				game_team = "{game}_{team}".format(game=box_score_text, team=team)
+				team_table = readTable("{dir}/{csv}.csv".format(dir=season_dir, csv=game_team))
+				players = team_table["player"]
+
+				players = pandas.concat([
+					player_stats[
+						(player_stats['player'].str.match(r'^' + player + r'\*?$')) & (player_stats['team_id'] == team)
+					][columns]
+					for player in players
+				])
+
+				game_data += list(players.mean())
+			all_game_data += [game_data]
+	df = pandas.DataFrame(all_game_data, columns=total_cols)
+
+	print(df)
+	df.to_csv(dst)
+	return df
+
+def balanceDataset(df):
+	# NOTE: the data could be mirror here so that there are equal wins and losses for home vs visitor wins;
+	# however, this was avoided in case the home-field advantage is a real thing
+
+	indices0 = np.where(df['points0'] > df['points1'])[0]
+	indices1 = np.where(df['points0'] < df['points1'])[0]
+	len0 = len(indices0)
+	len1 = len(indices1)
+	if len0 > len1:
+		remove_amount = len0 - len1
+		indices_to_remove = np.random.choice(indices0, size=remove_amount, replace=False)
+	elif len0 < len1:
+		remove_amount = len1 - len0
+		indices_to_remove = np.random.choice(indices1, size=remove_amount, replace=False)
+	else:
+		return df
+
+	return df.drop(indices_to_remove)
+
+def standardizeDataset(df):
+    return (df - df.min()) / (df.max() - df.min())
+    # return (df - df.mean()) / df.std()
+
+################################################################################
+#model features
+
+def RMSE(true, predicted):
+    return np.sqrt(np.mean(np.square(true - predicted)))
+
+from sklearn.preprocessing import MinMaxScaler
+scaler = MinMaxScaler()
+
+csv_filename = "average_comparisons.csv"
+csv_filename = os.path.join(file_dir, csv_filename)
+if not os.path.exists(csv_filename):
+	constructDataset(csv_filename)
+
+df = readTable(csv_filename)
+
+df = balanceDataset(df)
+x = df[df.columns.drop(['season', 'points0', 'points1'])]
+x = scaler.fit_transform(x)
+#x = x.to_numpy()
+print(x)
+y = (df['points0'] - df['points1'])
+y = y.values
+y = y.astype(float)
+#split_ind = df.shape[0] * 6 // 10
+#train_x = x.iloc[:split_ind]
+#train_y = y.iloc[:split_ind]
+#test_x  = x.iloc[split_ind:]
+#test_y  = y.iloc[split_ind:]
+
+################################################################################
+#OLS CV
+from sklearn import linear_model
+model=linear_model.LinearRegression()
+
+n_runs=5
+k = 4
+
+n_runs_rmse_model = []
+true_predicted_model = []
+n_runs_rmse_dummy = []
+true_predicted_dummy = []
+
+n_runs_mape_model = []
+n_runs_mape_dummy = []
+for i in range(0,n_runs):
+    X_train_test, X_validation, y_train_test, y_validation = train_test_split(x, y, test_size=0.2, random_state=None)
+    
+    kf = KFold(n_splits=k, random_state=None)
+    rmse_cv = []
+    params_cv = []
+    model_coefs = []
+     
+    for train_index , test_index in kf.split(X_train_test):
+        X_train , X_test = X_train_test[train_index,:], X_train_test[test_index,:]
+        y_train , y_test = y_train_test[train_index], y_train_test[test_index]
+            
+        
+        model.fit(X_train, y_train)
+        model_prediction = model.predict(X_test).reshape((-1,1))
+        
+    
+        #error = mean_squared_error(y_test, ols_prediction.reshape((-1,1)), squared=False)
+        rmse_cv.append(mean_squared_error(y_test, model_prediction, squared=False))
+
+        
+    model.fit(X_train_test, y_train_test)
+    model_prediction = model.predict(X_validation).reshape((-1,1))
+    n_runs_rmse_model.append(mean_squared_error(y_validation, model_prediction, squared=False))
+    n_runs_mape_model.append(mean_absolute_percentage_error(y_validation, model_prediction))
+    model_coefs.append(model.coef_)
+    
+    true_predicted_model.append(np.concatenate((model_prediction, y_validation.reshape((-1,1))), axis=1))
+    
+    rmse_cv = np.vstack(rmse_cv)
+    
+    mean_rmse_runs_model = np.mean(n_runs_rmse_model)
+    std_rmse_runs_model = np.std(n_runs_rmse_model)
+    
+    mean_rmse_runs_dummy = np.mean(n_runs_rmse_dummy)
+    std_rmse_runs_dummy = np.std(n_runs_rmse_dummy)
+    
+    mean_mape_runs_model = np.mean(n_runs_mape_model)
+    std_mape_runs_model = np.std(n_runs_mape_model)
+    
+    mean_mape_runs_dummy = np.mean(n_runs_mape_dummy)
+    std_mape_runs_dummy = np.std(n_runs_mape_dummy)
+
+
+results = {'mean_rmse_runs_model':mean_rmse_runs_model,
+           'std_rmse_runs_model':std_rmse_runs_model,
+#           'mean_rmse_runs_dummy':mean_rmse_runs_dummy,
+#          'std_rmse_runs_dummy':std_rmse_runs_dummy,
+#               'true_predicted_model':true_predicted_model,
+#               'true_predicted_dummy':true_predicted_dummy,
+           
+           'mean_mape_runs_model':mean_mape_runs_model,
+           'std_mape_runs_model':std_mape_runs_model,
+#           'mean_mape_runs_dummy':mean_mape_runs_dummy,
+#           'std_mape_runs_dummy':std_mape_runs_dummy,
+    }
+
+
+print(results)
+true_predicted_model = np.vstack(true_predicted_model )
+
+fontSize = 14
+fig = plt.figure(num=111, dpi=250)
+ax = fig.add_subplot()
+ax.set_title('OLS', fontsize=fontSize, pad=10)
+#plt.plot(np.arange(0,600,50), np.arange(0,600,50), color='k', label='Ideal')
+sc = plt.scatter(true_predicted_model[:,1], true_predicted_model[:,0], c='red' , s=30, marker='o', edgecolors='k', linewidths=0.5, label='Prediction')
+#ax.set_xscale('log')
+#ax.set_yscale('log')
+plt.legend(loc='upper left')
+#plt.colorbar(sc, pad=0.05, label='Cycle Life (50% LAM)')
+plt.xlabel('True Point Differential', fontsize=15)
+plt.ylabel('Predicted Point DIfferntial', fontsize=15)
+plt.show()
+
+################################################################################
+#Ridge
+
+k=4 
+fit_intercept=True 
+n_runs=5
+
+n_runs_rmse_model = []
+true_predicted_model = []
+n_runs_rmse_dummy = []
+true_predicted_dummy = []
+
+n_runs_mape_model = []
+n_runs_mape_dummy = []
+for i in range(0,n_runs):
+    # Split the dataset 80/20. The 20% will be used to populate the "n_runs_rmse" which is the validation error for this run.
+    # Keeping 20% data out ensures the model never sees it to begin with. 
+    X_train_test, X_validation, y_train_test, y_validation = train_test_split(x, y, test_size=0.2, random_state=None)
+    
+    # Take the train/test data and perform k-fold CV with it and record the parameters and rmse
+    kf = KFold(n_splits=k, random_state=None)
+    rmse_cv = []
+    params_cv = []
+    model_coefs = []
+    # prediction_pairs = []
+    for train_index , test_index in kf.split(X_train_test):
+        X_train , X_test = X_train_test[train_index,:], X_train_test[test_index,:]
+        y_train , y_test = y_train_test[train_index], y_train_test[test_index]
+        
+        # l1_ratio_list = [0.0001,0.001,0.01,0.05,0.1,0.3,0.5,0.7,0.9,0.95,0.96,0.97,0.98,0.985,0.99,0.995,0.997,0.999,0.9999]
+        # alpha_list = [0.0001,0.001,0.005,0.01,0.05,0.1,0.3,0.5,0.7,0.9,0.95,1.0,1.25,1.5,2.0,3.0,4.0]
+        alpha_list = np.linspace(0.0000001, 15, 1000)
+        
+        model_parameter_search_rmse = []
+        for alpha in alpha_list:
+            # for l1_ratio in l1_ratio_list:
+            model = Ridge(alpha=alpha, fit_intercept=fit_intercept, max_iter=10e6)
+            model.fit(X_train, y_train)
+            model_prediction = model.predict(X_test)
+            # error = RMSE(y_test, model_prediction.reshape((-1,1)))
+            error = mean_squared_error(y_test, model_prediction.reshape((-1,1)), squared=False)
+            model_parameter_search_rmse.append(np.array([alpha, error]))
+        
+        search_results = np.vstack(model_parameter_search_rmse)
+        optimal_params = search_results[np.where(search_results[:,-1] == np.amin(search_results[:,-1]))[0][0]]
+    
+        model = Ridge(alpha=optimal_params[0], fit_intercept=fit_intercept, max_iter=10e6)
+        model.fit(X_train, y_train)
+        model_prediction = model.predict(X_test).reshape((-1,1))
+        # rmse_cv.append(RMSE(y_test, model_prediction))
+        rmse_cv.append(mean_squared_error(y_test, model_prediction, squared=False))
+        params_cv.append(optimal_params)
+    
+    # After k-fold CV, grab the optimal parameters by finding the lowest of the 4 cv-error
+    rmse_cv = np.vstack(rmse_cv)
+    params_cv = np.vstack(params_cv)
+    optimal_params_cv = params_cv[np.where(params_cv[:,-1] == np.amin(params_cv[:,-1]))[0][0]]
+    
+    #######################################################################
+    # Train the model using all the 80% data
+    model = Ridge(alpha=optimal_params_cv[0], fit_intercept=fit_intercept, max_iter=10e6)
+    model.fit(X_train_test, y_train_test)
+    model_prediction = model.predict(X_validation).reshape((-1,1))
+    n_runs_rmse_model.append(mean_squared_error(y_validation, model_prediction, squared=False))
+    n_runs_mape_model.append(mean_absolute_percentage_error(y_validation, model_prediction))
+    model_coefs.append(model.coef_)
+
+    # Record true/predicted
+    true_predicted_model.append(np.concatenate((model_prediction, y_validation.reshape((-1,1))), axis=1))
+    #######################################################################
+    
+    # The dummy regressor which just estimates mean value of the dataset
+    #model_prediction = np.ones_like(y_validation).reshape((-1,1)) * np.mean(y_train_test)
+    #n_runs_rmse_dummy.append(mean_squared_error(y_validation, model_prediction, squared=False))
+    #true_predicted_dummy.append(np.concatenate((model_prediction, y_validation.reshape((-1,1))), axis=1))
+    #n_runs_mape_dummy.append(mean_squared_error(y_validation, model_prediction))
+    
+# Average the RMSE and compute the std
+mean_rmse_runs_model = np.mean(n_runs_rmse_model)
+std_rmse_runs_model = np.std(n_runs_rmse_model)
+
+#mean_rmse_runs_dummy = np.mean(n_runs_rmse_dummy)
+#std_rmse_runs_dummy = np.std(n_runs_rmse_dummy)
+
+mean_mape_runs_model = np.mean(n_runs_mape_model)
+std_mape_runs_model = np.std(n_runs_mape_model)
+
+#mean_mape_runs_dummy = np.mean(n_runs_mape_dummy)
+#std_mape_runs_dummy = np.std(n_runs_mape_dummy)
+
+results = {'mean_rmse_runs_model':mean_rmse_runs_model,
+           'std_rmse_runs_model':std_rmse_runs_model,
+#           'mean_rmse_runs_dummy':mean_rmse_runs_dummy,
+#          'std_rmse_runs_dummy':std_rmse_runs_dummy,
+#               'true_predicted_model':true_predicted_model,
+#               'true_predicted_dummy':true_predicted_dummy,
+           
+           'mean_mape_runs_model':mean_mape_runs_model,
+           'std_mape_runs_model':std_mape_runs_model,
+#           'mean_mape_runs_dummy':mean_mape_runs_dummy,
+#           'std_mape_runs_dummy':std_mape_runs_dummy,
+    }
+
+
+print(results)
+true_predicted_model = np.vstack(true_predicted_model )
+
+
+
+fontSize = 14
+fig = plt.figure(num=111, dpi=250)
+ax = fig.add_subplot()
+ax.set_title('Ridge Regression', fontsize=fontSize, pad=10)
+#plt.plot(np.arange(0,600,50), np.arange(0,600,50), color='k', label='Ideal')
+sc = plt.scatter(true_predicted_model[:,1], true_predicted_model[:,0], c='red' , s=30, marker='o', edgecolors='k', linewidths=0.5, label='Prediction')
+#ax.set_xscale('log')
+#ax.set_yscale('log')
+plt.legend(loc='upper left')
+#plt.colorbar(sc, pad=0.05, label='Cycle Life (50% LAM)')
+plt.xlabel('True Point Differential', fontsize=15)
+plt.ylabel('Predicted Point DIfferntial', fontsize=15)
+plt.show()
+         
+################################################################################
+#Lasso
+
+k=4
+fit_intercept=True 
+n_runs=5
+
+model_coefs = []
+n_runs_rmse_model = []
+true_predicted_model = []
+n_runs_rmse_dummy = []
+true_predicted_dummy = []
+
+n_runs_mape_model = []
+n_runs_mape_dummy = []
+for i in range(0,n_runs):
+    # Split the dataset 80/20. The 20% will be used to populate the "n_runs_rmse" which is the validation error for this run.
+    # Keeping 20% data out ensures the model never sees it to begin with. 
+    X_train_test, X_validation, y_train_test, y_validation = train_test_split(x, y, test_size=0.2, random_state=None)
+    
+    # Take the train/test data and perform k-fold CV with it and record the parameters and rmse
+    kf = KFold(n_splits=k, random_state=None)
+    rmse_cv = []
+    params_cv = []
+    # prediction_pairs = []
+    for train_index , test_index in kf.split(X_train_test):
+        X_train , X_test = X_train_test[train_index,:], X_train_test[test_index,:]
+        y_train , y_test = y_train_test[train_index], y_train_test[test_index]
+        
+        # l1_ratio_list = [0.0001,0.001,0.01,0.05,0.1,0.3,0.5,0.7,0.9,0.95,0.96,0.97,0.98,0.985,0.99,0.995,0.997,0.999,0.9999]
+        # alpha_list = [0.0001,0.001,0.005,0.01,0.05,0.1,0.3,0.5,0.7,0.9,0.95,1.0,1.25,1.5,2.0,3.0,4.0]
+        alpha_list = np.linspace(0.0000001, 15, 1000)
+        
+        model_parameter_search_rmse = []
+        for alpha in alpha_list:
+            # for l1_ratio in l1_ratio_list:
+            model = Lasso(alpha=alpha, fit_intercept=fit_intercept, max_iter=10e6)
+            model.fit(X_train, y_train)
+            model_prediction = model.predict(X_test)
+            # error = RMSE(y_test, model_prediction.reshape((-1,1)))
+            error = mean_squared_error(y_test, model_prediction.reshape((-1,1)), squared=False)
+            model_parameter_search_rmse.append(np.array([alpha, error]))
+        
+        search_results = np.vstack(model_parameter_search_rmse)
+        optimal_params = search_results[np.where(search_results[:,-1] == np.amin(search_results[:,-1]))[0][0]]
+    
+        model = Lasso(alpha=optimal_params[0], fit_intercept=fit_intercept, max_iter=10e6)
+        model.fit(X_train, y_train)
+        model_prediction = model.predict(X_test).reshape((-1,1))
+        # rmse_cv.append(RMSE(y_test, model_prediction))
+        rmse_cv.append(mean_squared_error(y_test, model_prediction, squared=False))
+        params_cv.append(optimal_params)
+    
+    # After k-fold CV, grab the optimal parameters by finding the lowest of the 4 cv-error
+    rmse_cv = np.vstack(rmse_cv)
+    params_cv = np.vstack(params_cv)
+    optimal_params_cv = params_cv[np.where(params_cv[:,-1] == np.amin(params_cv[:,-1]))[0][0]]
+    
+    #######################################################################
+    # Train the model using all the 80% data
+    model = Lasso(alpha=optimal_params_cv[0], fit_intercept=fit_intercept, max_iter=10e6)
+    model.fit(X_train_test, y_train_test)
+    model_prediction = model.predict(X_validation).reshape((-1,1))
+    n_runs_rmse_model.append(mean_squared_error(y_validation, model_prediction, squared=False))
+    n_runs_mape_model.append(mean_absolute_percentage_error(y_validation, model_prediction))
+    model_coefs.append(model.coef_)
+
+    # Record true/predicted
+    true_predicted_model.append(np.concatenate((model_prediction, y_validation.reshape((-1,1))), axis=1))
+    #######################################################################
+    
+    # The dummy regressor which just estimates mean value of the dataset
+    model_prediction = np.ones_like(y_validation).reshape((-1,1)) * np.mean(y_train_test)
+    n_runs_rmse_dummy.append(mean_squared_error(y_validation, model_prediction, squared=False))
+    true_predicted_dummy.append(np.concatenate((model_prediction, y_validation.reshape((-1,1))), axis=1))
+    n_runs_mape_dummy.append(mean_squared_error(y_validation, model_prediction))
+    
+# Average the RMSE and compute the std
+mean_rmse_runs_model = np.mean(n_runs_rmse_model)
+std_rmse_runs_model = np.std(n_runs_rmse_model)
+
+mean_rmse_runs_dummy = np.mean(n_runs_rmse_dummy)
+std_rmse_runs_dummy = np.std(n_runs_rmse_dummy)
+
+mean_mape_runs_model = np.mean(n_runs_mape_model)
+std_mape_runs_model = np.std(n_runs_mape_model)
+
+mean_mape_runs_dummy = np.mean(n_runs_mape_dummy)
+std_mape_runs_dummy = np.std(n_runs_mape_dummy)
+
+results = {'mean_rmse_runs_model':mean_rmse_runs_model,
+           'std_rmse_runs_model':std_rmse_runs_model,
+#           'mean_rmse_runs_dummy':mean_rmse_runs_dummy,
+#          'std_rmse_runs_dummy':std_rmse_runs_dummy,
+#               'true_predicted_model':true_predicted_model,
+#               'true_predicted_dummy':true_predicted_dummy,
+           
+           'mean_mape_runs_model':mean_mape_runs_model,
+           'std_mape_runs_model':std_mape_runs_model,
+#           'mean_mape_runs_dummy':mean_mape_runs_dummy,
+#           'std_mape_runs_dummy':std_mape_runs_dummy,
+    }
+
+
+print(results)
+true_predicted_model = np.vstack(true_predicted_model )
+
+
+
+fontSize = 14
+fig = plt.figure(num=111, dpi=250)
+ax = fig.add_subplot()
+ax.set_title('Lasso Regression', fontsize=fontSize, pad=10)
+#plt.plot(np.arange(0,600,50), np.arange(0,600,50), color='k', label='Ideal')
+sc = plt.scatter(true_predicted_model[:,1], true_predicted_model[:,0], c='red' , s=30, marker='o', edgecolors='k', linewidths=0.5, label='Prediction')
+#ax.set_xscale('log')
+#ax.set_yscale('log')
+plt.legend(loc='upper left')
+#plt.colorbar(sc, pad=0.05, label='Cycle Life (50% LAM)')
+plt.xlabel('True Point Differential', fontsize=15)
+plt.ylabel('Predicted Point DIfferntial', fontsize=15)
+plt.show()
+
+
+
+
+################################################################################
+#ELASTIC NET
+k=4 
+fit_intercept=True 
+n_runs=5
+
+
+model_coefs = []
+n_runs_rmse_model = []
+true_predicted_model = []
+n_runs_rmse_dummy = []
+true_predicted_dummy = []
+
+n_runs_mape_model = []
+n_runs_mape_dummy = []
+for i in range(0,n_runs):
+    # Split the dataset 80/20. The 20% will be used to populate the "n_runs_rmse" which is the validation error for this run.
+    # Keeping 20% data out ensures the model never sees it to begin with. 
+    X_train_test, X_validation, y_train_test, y_validation = train_test_split(x, y, test_size=0.2, random_state=None)
+    
+    # Take the train/test data and perform k-fold CV with it and record the parameters and rmse
+    kf = KFold(n_splits=k, random_state=None)
+    rmse_cv = []
+    params_cv = []
+    # prediction_pairs = []
+    for train_index , test_index in kf.split(X_train_test):
+        X_train , X_test = X_train_test[train_index,:], X_train_test[test_index,:]
+        y_train , y_test = y_train_test[train_index], y_train_test[test_index]
+        
+        # l1_ratio_list = [0.0001,0.001,0.01,0.05,0.1,0.3,0.5,0.7,0.9,0.95,0.96,0.97,0.98,0.985,0.99,0.995,0.997,0.999,0.9999]
+        # alpha_list = [0.0001,0.001,0.005,0.01,0.05,0.1,0.3,0.5,0.7,0.9,0.95,1.0,1.25,1.5,2.0,3.0,4.0]
+        l1_ratio_list = np.linspace(0.0001, 0.9999, 5)
+        alpha_list = np.linspace(0.0000001, 5, 1000)
+        
+        model_parameter_search_rmse = []
+        for alpha in alpha_list:
+            for l1_ratio in l1_ratio_list:
+                model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, fit_intercept=fit_intercept, max_iter=10e6)
+                model.fit(X_train, y_train)
+                model_prediction = model.predict(X_test)
+                # error = RMSE(y_test, model_prediction.reshape((-1,1)))
+                error = mean_squared_error(y_test, model_prediction.reshape((-1,1)), squared=False)
+                model_parameter_search_rmse.append(np.array([alpha, l1_ratio, error]))
+        
+        search_results = np.vstack(model_parameter_search_rmse)
+        optimal_params = search_results[np.where(search_results[:,-1] == np.amin(search_results[:,-1]))[0][0]]
+    
+        model = ElasticNet(alpha=optimal_params[0], l1_ratio=optimal_params[1], fit_intercept=fit_intercept, max_iter=10e6)
+        model.fit(X_train, y_train)
+        model_prediction = model.predict(X_test).reshape((-1,1))
+        # rmse_cv.append(RMSE(y_test, model_prediction))
+        rmse_cv.append(mean_squared_error(y_test, model_prediction, squared=False))
+        params_cv.append(optimal_params)
+    
+    # After k-fold CV, grab the optimal parameters by finding the lowest of the 4 cv-error
+    rmse_cv = np.vstack(rmse_cv)
+    params_cv = np.vstack(params_cv)
+    optimal_params_cv = params_cv[np.where(params_cv[:,-1] == np.amin(params_cv[:,-1]))[0][0]]
+    
+    #######################################################################
+    # Train the model using all the 80% data
+    model = ElasticNet(alpha=optimal_params_cv[0], l1_ratio=optimal_params[1], fit_intercept=fit_intercept, max_iter=10e6)
+    model.fit(X_train_test, y_train_test)
+    model_prediction = model.predict(X_validation).reshape((-1,1))
+    n_runs_rmse_model.append(mean_squared_error(y_validation, model_prediction, squared=False))
+    n_runs_mape_model.append(mean_absolute_percentage_error(y_validation, model_prediction))
+    model_coefs.append(model.coef_)
+    
+    # Record true/predicted
+    true_predicted_model.append(np.concatenate((model_prediction, y_validation.reshape((-1,1))), axis=1))
+    #######################################################################
+    
+    # The dummy regressor which just estimates mean value of the dataset
+    model_prediction = np.ones_like(y_validation).reshape((-1,1)) * np.mean(y_train_test)
+    n_runs_rmse_dummy.append(mean_squared_error(y_validation, model_prediction, squared=False))
+    n_runs_mape_dummy.append(mean_squared_error(y_validation, model_prediction))
+    true_predicted_dummy.append(np.concatenate((model_prediction, y_validation.reshape((-1,1))), axis=1))
+    
+    
+# Average the RMSE and compute the std
+mean_rmse_runs_model = np.mean(n_runs_rmse_model)
+std_rmse_runs_model = np.std(n_runs_rmse_model)
+
+mean_rmse_runs_dummy = np.mean(n_runs_rmse_dummy)
+std_rmse_runs_dummy = np.std(n_runs_rmse_dummy)
+
+mean_mape_runs_model = np.mean(n_runs_mape_model)
+std_mape_runs_model = np.std(n_runs_mape_model)
+
+mean_mape_runs_dummy = np.mean(n_runs_mape_dummy)
+std_mape_runs_dummy = np.std(n_runs_mape_dummy)
+
+results = {'mean_rmse_runs_model':mean_rmse_runs_model,
+           'std_rmse_runs_model':std_rmse_runs_model,
+#           'mean_rmse_runs_dummy':mean_rmse_runs_dummy,
+#          'std_rmse_runs_dummy':std_rmse_runs_dummy,
+#               'true_predicted_model':true_predicted_model,
+#               'true_predicted_dummy':true_predicted_dummy,
+           
+           'mean_mape_runs_model':mean_mape_runs_model,
+           'std_mape_runs_model':std_mape_runs_model,
+#           'mean_mape_runs_dummy':mean_mape_runs_dummy,
+#           'std_mape_runs_dummy':std_mape_runs_dummy,
+    }
+
+
+print(results)
+true_predicted_model = np.vstack(true_predicted_model )
+
+
+
+fontSize = 14
+fig = plt.figure(num=111, dpi=250)
+ax = fig.add_subplot()
+ax.set_title('Elastic Net', fontsize=fontSize, pad=10)
+#plt.plot(np.arange(0,600,50), np.arange(0,600,50), color='k', label='Ideal')
+sc = plt.scatter(true_predicted_model[:,1], true_predicted_model[:,0], c='red' , s=30, marker='o', edgecolors='k', linewidths=0.5, label='Prediction')
+#ax.set_xscale('log')
+#ax.set_yscale('log')
+plt.legend(loc='upper left')
+#plt.colorbar(sc, pad=0.05, label='Cycle Life (50% LAM)')
+plt.xlabel('True Point Differential', fontsize=15)
+plt.ylabel('Predicted Point DIfferntial', fontsize=15)
+plt.show()
+
+
+
